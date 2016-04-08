@@ -183,11 +183,13 @@ def simulate(neuron, g_fac):
     run(t_end, namespace=ns, report='stdout')
 
     U_M = (g_E_s*nrn["E_E"] + g_I_s*nrn["E_I"] + nrn["g_L"]*nrn["E_L"]) / (g_E_s + g_I_s + nrn["g_L"])
+    ts_um = arange(U_M.shape[0])*dt_teacher
 
     figure(figsize=(20, 6))
     subplot(1, 2, 1)
     plot(M.t / ms, M.U.T / mV)
     plot(M.t / ms, M.V.T / mV)
+    plot(ts_um/ms, U_M, 'k--', alpha=0.5)
     subplot(1, 2, 2)
     plot(SynMon.t / ms, SynMon.w.T)
 
