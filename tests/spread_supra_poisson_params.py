@@ -94,7 +94,6 @@ def simulate((i_rep, p)):
     else:
         assert False
 
-    #cycle = 200*ms
     ns = {}
     for key, value in nrn.items():
         if key[0] == 'g':
