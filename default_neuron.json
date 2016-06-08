@@ -11,6 +11,7 @@
   "E_I": -75.0,
   "tau_ref": 10.0,
   "tau_s": 3.0,
+  "tau_s_inh": 20.0,
   "tau_delta": 2.0,
   "t_rise": 1.0,
   "t_fall": 3.0,
