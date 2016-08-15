@@ -1,10 +1,15 @@
 import json
+import warnings
+from collections import OrderedDict
 
 import numpy as np
 from brian2 import *
 from IPython import embed
 from scipy.stats import bernoulli
 
+from helper import do, dump
+
+warnings.simplefilter(action = "ignore", category = FutureWarning)
 
 @implementation('cpp', '''
      #include<math.h>
@@ -29,12 +34,14 @@ def phi(U, alpha, beta, r_max):
 def phi_prime(U, alpha, beta, r_max):
     pass
 
-def get_poisson_spikes(input_rate=10*Hz, cycle_dur=100*ms, N_input=100):
-    spike_nrs = np.random.poisson(input_rate * cycle_dur, N_input)
+def get_poisson_spikes(input_rate=10*Hz, cycle_dur=100*ms, N_input=100, use_indices=None):
+    if use_indices == None:
+        use_indices = range(N_input)
+    spike_nrs = np.random.poisson(input_rate * cycle_dur, len(use_indices))
     indices = []
     times = np.array([])
     for i, nr in enumerate(spike_nrs):
-        indices = indices + [i for _ in range(nr)]
+        indices = indices + [use_indices[i] for _ in range(nr)]
         times = np.concatenate((times, cycle_dur / ms * np.random.rand(nr)))
     times = times * ms
 
@@ -47,7 +54,13 @@ def get_chain_spikes(input_rate, cycle_dur=100*ms, N_input=100):
     return SpikeGeneratorGroup(N_input, indices, times, period=cycle_dur)
 
 
-def simulate(neuron):
+def simulate((repetition_i, p)):
+    neuron = json.load(open('default_neuron.json', 'r'))
+    neuron["Idelta_adap"] = p["Idelta_adap"]
+    neuron["tau_adap"] = p["tau_adap"]
+    neuron["r_max"] = p["r_max"]
+    neuron["tau_s_inh"] = p["tau_exc_inh"]
+    neuron["tau_s_exc"] = p["tau_exc_inh"]
     np.random.seed(42)  # seed for pseudo-randomness
 
     ns = {}
@@ -58,6 +71,8 @@ def simulate(neuron):
             unit = mV
         elif key[0] == 't':
             unit = ms
+        elif key[0] == 'I':
+            unit = uamp
         elif key == 'alpha':
             unit = mV
         elif key == 'beta':
@@ -87,8 +102,11 @@ def simulate(neuron):
     #I_spike = 0.0*uamp : amp
     I_spike = - g_Na*(U - E_Na)*int((t-lastspike) < t_rise) - g_K*(U - E_K)*int((t-lastspike) > t_rise)*int((t-lastspike) < t_fall) : amp
 
+    #Adaptation currents
+    dI_adap/dt = -I_adap/tau_adap : amp
+
     #Somatic potential
-    dU/dt = -g_L*(U-E_L)/C - g_D*(U - V)/C - g_E_S_tot*(U - E_E)/C - g_I_S_tot*(U - E_I)/C + I_som/C + I_spike/C : volt
+    dU/dt = -g_L*(U-E_L)/C - g_D*(U - V)/C - g_E_S_tot*(U - E_E)/C - g_I_S_tot*(U - E_I)/C  - I_adap/C + I_som/C + I_spike/C : volt
 
     #Dendritic potential
     dV/dt = -g_L*(V-E_L)/C - (g_E_D_tot + g_E_D_tot2)*(V - E_E)/C - g_S*(V-U)/C : volt
@@ -108,22 +126,22 @@ def simulate(neuron):
 
     group_size = 20
     NoI = NeuronGroup(group_size, nrn_eqs, threshold='phi(U, alpha, beta, r_max)*dt>rand()',
-                      refractory=5 * ms)
+                      refractory=5 * ms, reset='I_adap += Idelta_adap/(tau_adap/ms)')
     NoI.U = -70.0 * mV
     NoI.V = -70.0 * mV
 
     eqs_syn_som_exc = '''
     #Input with weight
-    dg_E_S/dt = -g_E_S/tau_s : siemens
+    dg_E_S/dt = -g_E_S/tau_s_exc : siemens
 
     g_E_S_tot_post = g_E_S : siemens (summed)
 
     w : 1
     '''
 
-    s_som = Synapses(NoI, NoI, eqs_syn_som_exc, pre="g_E_S += w*msiemens")
-    s_som.connect('i!=j and ((i < group_size/2) == (j < group_size/2))')
-    s_som.w = 1e-1
+    s_som_e = Synapses(NoI, NoI, eqs_syn_som_exc, pre="g_E_S += w/(tau_s_exc/ms)*msiemens")
+    s_som_e.connect('i!=j and ((i < group_size/2) == (j < group_size/2))')
+    s_som_e.w = p["w"]
 
     eqs_syn_som_inh = '''
     #Input with weight
@@ -134,9 +152,9 @@ def simulate(neuron):
     w : 1
     '''
 
-    s_som_i = Synapses(NoI, NoI, eqs_syn_som_inh, pre="g_I_S += w*msiemens")
+    s_som_i = Synapses(NoI, NoI, eqs_syn_som_inh, pre="g_I_S += w/(tau_s_inh/ms)*msiemens")
     s_som_i.connect('(i < group_size/2) != (j < group_size/2)')
-    s_som_i.w = 1e-1
+    s_som_i.w = p["w"]
 
     # equations for the synapses
     eqs_syn = '''
@@ -154,7 +172,7 @@ def simulate(neuron):
     ddV_star_dw/dt = -(g_L + g_D)*dV_star_dw/C + g_D*dV_dw/C : volt
 
     ddelta/dt = ((int((t-lastspike) < 0.11*ms)/(dt/second) - phi(V_star, alpha, beta, r_max)) * phi_prime(V_star, alpha, beta, r_max) / phi(V_star, alpha, beta, r_max) * dV_star_dw - delta)/tau_delta : 1
-
+    #ddelta/dt = ((phi(U_post, alpha, beta, r_max) - phi(V_star, alpha, beta, r_max)) * phi_prime(V_star, alpha, beta, r_max) / phi(V_star, alpha, beta, r_max) * dV_star_dw - delta)/tau_delta : 1
     dw/dt = eta*delta : 1
 
     eta : 1
@@ -165,16 +183,20 @@ def simulate(neuron):
     g_s += 1.*msiemens
     g_E_D += w*msiemens
     '''
-
-    N = 200
+    f_in = 10*Hz
+    N_input = 100
     cycle = 200*ms
-    indices1, times1 = get_poisson_spikes(10*Hz, cycle, N)
-    indices2, times2 = get_poisson_spikes(10*Hz, cycle, N)
+    used_indices1 = range(int((1 + p["overlap"])*N_input/2))
+    used_indices2 = range(int((1 - p["overlap"])*N_input/2), N_input)
+    indices1, times1 = get_poisson_spikes(f_in, cycle, N_input, use_indices = used_indices1) #lower freq?, spatial separation?
+    indices2, times2 = get_poisson_spikes(f_in, cycle, N_input, use_indices = used_indices2)
     indices, times = (indices1, indices2), (times1, times2)
 
-    N_presentations = 200
+    N_presentations = 1000
     p_pattern0 = 0.5
-    patterns = bernoulli.rvs(p_pattern0, size=N_presentations)
+    patterns = bernoulli.rvs(1.0-p_pattern0, size=N_presentations)
+    #patterns = np.append(patterns,[1])
+    #patterns = np.array([0 for _ in range(30)] + [1 for _ in range(5)])
 
     all_indices = []
     all_times = []
@@ -183,50 +205,128 @@ def simulate(neuron):
         all_times = all_times + [pt_idx*cycle/ms + tm/ms for tm in times[pt]]
     all_times = np.array(all_times)*ms
 
-    poisson = SpikeGeneratorGroup(N, all_indices, all_times)
+    poisson = SpikeGeneratorGroup(N_input, all_indices, all_times)
 
     syns = Synapses(poisson, NoI, eqs_syn, pre=pre)
     syns.connect(True)
-    syns.eta = 1e-3 / N
-    syns.w = 3e-1 / N
+    syns.eta = p["eta"] / N_input
+    w_base = 3e-1 / N_input
+    w_big = w_base*(1+p["wbias"])
+    w_small = w_base*(1-p["wbias"])
 
+    sigma = w_base*p["sigmaf"]
 
-    min_weights = np.zeros(N*group_size)
+    syns.w[:N_input/2,:group_size/2] = w_big + sigma*np.random.rand(N_input/2*group_size/2)
+    syns.w[N_input/2:,group_size/2:] = w_big + sigma*np.random.rand(N_input/2*group_size/2)
+    syns.w[N_input/2:,:group_size/2] = w_small + sigma*np.random.rand(N_input/2*group_size/2)
+    syns.w[:N_input/2,group_size/2:] = w_small + sigma*np.random.rand(N_input/2*group_size/2)
+
+    #syns.w = 3e-1 / N_input
+
+    min_weights = np.zeros(N_input*group_size)
 
     @network_operation(when='end', dt=20 * ms)
     def clip_weights():
         syns.w = np.maximum(syns.w, min_weights)
 
-    M = StateMonitor(NoI, ['U', 'V', 'V_star'], record=True, dt=1*ms)
+    M = StateMonitor(NoI, ['U', 'V', 'V_star', 'I_adap'], record=True, dt=1*ms)
     SM = SpikeMonitor(NoI)
-    SynMon1 = StateMonitor(syns, ['w'], record=syns[:,group_size/2:], dt=2*ms)
-    SynMon2 = StateMonitor(syns, ['w'], record=syns[:,:group_size/2], dt=2*ms)
+    SynMon = StateMonitor(syns, ['w'], record=True, dt=100*ms)
     ratem = PopulationRateMonitor(NoI)
 
 
-    durat = N_presentations*cycle
+    durat = len(patterns)*cycle
     run(durat, namespace=ns, report='stdout')
+    spikes1 = concatenate([SM.spike_trains()[i]/ms for i in range(group_size/2)])
+    spikes2 = concatenate([SM.spike_trains()[i]/ms for i in range(group_size/2,group_size)])
+    all_spikes = [spikes1, spikes2]
+
+    pattern_starts = arange(0,len(patterns)*cycle/ms,cycle/ms)
+    assigned_spikes = {}
+
+    spike_counts = np.zeros((pattern_starts.shape[0],2))
+
+    for i, ps in enumerate(pattern_starts):
+        spike_counts[i, 0] = 1000/(cycle/ms)*1.0/(group_size/2)*np.sum(np.logical_and(spikes1 >= ps, spikes1 < ps+cycle/ms))
+        spike_counts[i, 1] = 1000/(cycle/ms)*1.0/(group_size/2)*np.sum(np.logical_and(spikes2 >= ps, spikes2 < ps+cycle/ms))
 
 
-    figure(figsize=(20, 6))
-    subplot(1, 3, 1)
-    plot(M.t / ms, M.U.T / mV)
-    #plot(M.t / ms, M.V.T / mV)
-    subplot(1, 3, 2)
-    plot(SynMon1.t / ms, SynMon1.w.T)
-    subplot(1, 3, 3)
-    plot(SynMon2.t / ms, SynMon2.w.T)
+    for pattern in [0,1]:
+        for group_idx, spikes in enumerate(all_spikes):
+            starts = reshape(pattern_starts[patterns==pattern],(-1,1))
+            diffs = spikes - starts
+            found_idxs = np.sum(logical_and(diffs > 0, diffs <= cycle/ms),0)
+            assert np.all(found_idxs <= 1)
+            assigned_spikes[(group_idx, pattern)] = spikes[found_idxs==1]
+    n_spikes = {k:1.0*assigned_spikes[k].shape[0] for k in assigned_spikes.keys()}
+    try:
+        selectivity0 = (n_spikes[(0,0)] - n_spikes[(1,0)])/(n_spikes[(0,0)] + n_spikes[(1,0)])
+    except ZeroDivisionError:
+        selectivity0 = None
+    try:
+        selectivity1 = (n_spikes[(0,1)] - n_spikes[(1,1)])/(n_spikes[(0,1)] + n_spikes[(1,1)])
+    except ZeroDivisionError:
+        selectivity1 = None
+    selectivities = (selectivity0, selectivity1)
+    print selectivities
+    print n_spikes
+    print p
+    print "------------------------"
+    #print w_i, nrn['Idelta_adap'], nrn['tau_adap']
+    #return
 
-    figure()
-    hist(concatenate([SM.spike_trains()[i]/second for i in range(group_size/2)]),bins=arange(0,durat/second+1), alpha=0.5)
-    hist(concatenate([SM.spike_trains()[i]/second for i in range(group_size/2,group_size)]),bins=arange(0,durat/second+1), alpha=0.5)
-    show()
     """
-    import cPickle
-    cPickle.dump((M.t/ms, M.U/mV, M.V/mV, SynMon.t/ms, SynMon.w.T, SM.spike_trains()), open('phis_al_{0}_b_{1}_rm_{2}.p'.format(nrn["alpha"], nrn["beta"], nrn["r_max"]),'wb'))
+    fig = figure()
+    plot(M.t / ms, M.U.T[:,:group_size/2] / mV, 'blue', alpha=0.5)
+    plot(M.t / ms, M.U.T[:,group_size/2:] / mV, 'green', alpha=0.5)
+    savefig(p["ident"]+"_voltage.pdf")
+    plt.close(fig)
     """
-    embed()
 
-nrn = json.load(open('default_neuron.json', 'r'))
-nrn["E_I"] = -75.0
-simulate(nrn)
+    fig = figure(figsize=(6, 10))
+    w_end = reshape(SynMon.w[:,-1],(group_size,N_input), order='F')
+    imshow(w_end.T,aspect='auto',interpolation='nearest',cmap='Oranges')
+    colorbar()
+    savefig(p["ident"]+"_weights.pdf")
+    plt.close(fig)
+
+    colors=['blue', 'green']
+    fig = figure(figsize=(12,5))
+    for pattern in [0,1]:
+        for group_idx in [0,1]:
+            hist, bins = np.histogram(assigned_spikes[(group_idx,pattern)],bins=arange(0,durat/ms+1,200))
+            factor = pattern*2-1
+            width = 0.9*(bins[1]-bins[0])
+            center = (bins[:-1] + bins[1:]) / 2
+            plt.bar(center, factor*hist, align='center', width=width, color=colors[group_idx], alpha=0.5)
+
+    savefig(p["ident"]+"_spikes.pdf")
+    plt.close(fig)
+
+    fig = figure(figsize=(6,6))
+    colors = ['b', 'g']
+    for idx, pat in enumerate(patterns):
+        scatter(spike_counts[idx,0], spike_counts[idx,1], c=colors[pat], lw=0, s=20, alpha=1.0/N_presentations*(idx+1))
+    xl, yl = xlim(), ylim()
+    plot([0,1000], [0,1000], 'k--')
+    xlim(xl)
+    ylim(yl)
+    savefig(p["ident"]+"_scatter.pdf")
+    plt.close(fig)
+
+    #results = (SynMon1.t/ms, SynMon1.w, SynMon2.w, SM.spike_trains(), assigned_spikes, selectivities)
+    #dump(results, p["ident"])
+
+params = OrderedDict()
+params["Idelta_adap"] = [150.0]
+params["tau_adap"] = [400.0]
+params["w"] = [1.5e-1]
+params["r_max"] = [0.2]
+params["wbias"] = [0.0]#, 0.5, 1.0]
+params["tau_exc_inh"] = [50.0]#, 200.0]
+params["sigmaf"] = [0.1]#, 0.3]
+params["eta"] = [1e-3]#, 2e-3, 4e-3]
+params["overlap"] = [0.0, 0.1]#, 0.1, 0.2, 0.5, 1.0]
+file_prefix = 'adap_reproduce_long'
+
+do(simulate, params, file_prefix, withmp=True, create_notebooks=False)
