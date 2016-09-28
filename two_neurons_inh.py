@@ -227,17 +227,10 @@ def simulate((repetition_i, p)):
     syns.connect(True)
     syns.eta = p["eta"] / N_input
     w_base = 1e0 / N_input
-    w_big = w_base*(1+p["wbias"])
-    w_small = w_base*(1-p["wbias"])
 
     sigma = w_base*p["sigmaf"]
 
-    syns.w[:N_input/2,:group_size] = w_big + sigma*np.random.randn(N_input/2*group_size)
-    syns.w[N_input/2:,group_size:] = w_big + sigma*np.random.randn(N_input/2*group_size)
-    syns.w[N_input/2:,:group_size] = w_small + sigma*np.random.randn(N_input/2*group_size)
-    syns.w[:N_input/2,group_size:] = w_small + sigma*np.random.randn(N_input/2*group_size)
-
-    #syns.w = 3e-1 / N_input
+    syns.w = w_base + sigma*np.random.randn(2*N_input*group_size)
 
     min_weights = np.zeros(N_input*group_size*2)
 
@@ -389,7 +382,6 @@ params["wi"] = [1e0]
 params["rho_E"] = [0.0]
 params["rho_I"] = [2.0]
 params["r_max"] = [1.0]
-params["wbias"] = [0.0]#, 0.5, 1.0]
 params["tau_exc_inh"] = [20.0]#, 200.0]
 params["sigmaf"] = [0.1]#, 0.3]
 params["eta"] = [5e-3, 1e-2, 2e-2]#,5e-4, 1e-3, 2e-3, 5e-3]#, 2e-3, 4e-3]
