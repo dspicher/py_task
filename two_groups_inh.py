@@ -61,7 +61,7 @@ def simulate((repetition_i, p)):
     neuron["r_max"] = p["r_max"]
     neuron["tau_s_inh"] = p["tau_exc_inh"]
     neuron["tau_s_exc"] = p["tau_exc_inh"]
-    np.random.seed(42)  # seed for pseudo-randomness
+    np.random.seed(p.get("seed",42))  # seed for pseudo-randomness
 
     ns = {}
     for key, value in neuron.items():
@@ -216,10 +216,10 @@ def simulate((repetition_i, p)):
 
     sigma = w_base*p["sigmaf"]
 
-    syns.w[:N_input/2,:group_size/2] = w_big + sigma*np.random.rand(N_input/2*group_size/2)
-    syns.w[N_input/2:,group_size/2:] = w_big + sigma*np.random.rand(N_input/2*group_size/2)
-    syns.w[N_input/2:,:group_size/2] = w_small + sigma*np.random.rand(N_input/2*group_size/2)
-    syns.w[:N_input/2,group_size/2:] = w_small + sigma*np.random.rand(N_input/2*group_size/2)
+    syns.w[:N_input/2,:group_size/2] = w_big + sigma*np.random.randn(N_input/2*group_size/2)
+    syns.w[N_input/2:,group_size/2:] = w_big + sigma*np.random.randn(N_input/2*group_size/2)
+    syns.w[N_input/2:,:group_size/2] = w_small + sigma*np.random.randn(N_input/2*group_size/2)
+    syns.w[:N_input/2,group_size/2:] = w_small + sigma*np.random.randn(N_input/2*group_size/2)
 
     #syns.w = 3e-1 / N_input
 
@@ -327,6 +327,7 @@ params["tau_exc_inh"] = [50.0]#, 200.0]
 params["sigmaf"] = [0.1]#, 0.3]
 params["eta"] = [1e-3]#, 2e-3, 4e-3]
 params["overlap"] = [0.0, 0.1]#, 0.1, 0.2, 0.5, 1.0]
-file_prefix = 'adap_reproduce_long'
+params["seed"] = range(7) + [42]
+file_prefix = 'unsup_seed_test'
 
 do(simulate, params, file_prefix, withmp=True, create_notebooks=False)
