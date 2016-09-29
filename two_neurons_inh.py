@@ -63,8 +63,6 @@ def simulate((repetition_i, p)):
     neuron["r_max"] = p["r_max"]
     neuron["tau_s_inh"] = p["tau_exc_inh"]
     neuron["tau_s_exc"] = p["tau_exc_inh"]
-    if "tau_delta" in p.keys():
-        neuron["tau_delta"] = p["tau_delta"]
     np.random.seed(p.get("seed",42))  # seed for pseudo-randomness
 
     ns = {}
@@ -388,8 +386,7 @@ params["tau_exc_inh"] = [20.0]#, 200.0]
 params["sigmaf"] = [0.1]#, 0.3]
 params["eta"] = [1e-2]#,5e-4, 1e-3, 2e-3, 5e-3]#, 2e-3, 4e-3]
 params["overlap"] = [0.0, 0.5]
-params["seed"] = range(2)
-params["tau_delta"] = [2.0, 20.0]
-file_prefix = 'tau_delta'
+params["seed"] = range(4)
+file_prefix = 'unsup'
 
-do(simulate, params, file_prefix, withmp=True, create_notebooks=False)
+do(simulate, params, file_prefix, withmp=False, create_notebooks=False)
