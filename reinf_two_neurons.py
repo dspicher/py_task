@@ -89,7 +89,7 @@ def simulate((repetition_i, p)):
     ns['phi'] = phi
     ns["rho_E"] = p["rho_E"]
     ns["rho_I"] = p["rho_I"]
-    defaultclock.dt = 0.025*ms
+    defaultclock.dt = 0.05*ms
 
     dt_teacher = 1 * second
     ns['g_E'] = TimedArray(np.zeros(1) * msiemens, dt_teacher)
@@ -209,7 +209,7 @@ def simulate((repetition_i, p)):
     indices2, times2 = get_poisson_spikes(f_in, cycle, N_input, use_indices = used_indices2)
     indices, times = (indices1, indices2), (times1, times2)
 
-    N_presentations = 200
+    N_presentations = 150
     p_pattern0 = 0.5
     patterns = bernoulli.rvs(1.0-p_pattern0, size=N_presentations)
 
@@ -254,7 +254,7 @@ def simulate((repetition_i, p)):
             reward = 2*patterns[pattern_count]-1
 
         # flip after half
-        if t >= durat/2:
+        if t >= durat/3:
             reward = -reward
 
         # clip weights at zero
@@ -401,7 +401,7 @@ def simulate((repetition_i, p)):
     #dump(results, p["ident"])
 
 params = OrderedDict()
-params["g_adap_delta"] = [1.0]
+params["g_adap_delta"] = [1.3, 1.5]
 params["tau_adap"] = [1000.0]
 params["we"] = [6e-1]#, 1e-1]
 params["wi"] = [1e0]
@@ -410,10 +410,10 @@ params["rho_I"] = [2.0]
 params["r_max"] = [1.0]
 params["tau_exc_inh"] = [20.0]#, 200.0]
 params["sigmaf"] = [0.1]#, 0.3]
-params["eta"] = [5e-2]#,5e-4, 1e-3, 2e-3, 5e-3]#, 2e-3, 4e-3]
-params["overlap"] = [0.0, 0.5]
-params["seed"] = range(4)
-params["tau_delta"] = [200.0, 500.0]
-file_prefix = 'reinf_flip'
+params["eta"] = [2e-1]#,5e-4, 1e-3, 2e-3, 5e-3]#, 2e-3, 4e-3]
+params["overlap"] = [0.0, 0.25]
+params["seed"] = range(2)
+params["tau_delta"] = [500.0]
+file_prefix = 'flip'
 
 do(simulate, params, file_prefix, withmp=True, create_notebooks=False)
