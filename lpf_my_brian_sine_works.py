@@ -32,8 +32,6 @@ def simulate(neuron, g_fac):
 
     from IPython import embed
 
-    neuron["g_S"] = 0.5
-
     ns = {}
     for key, value in neuron.items():
         if key[0] == 'g':
@@ -132,31 +130,33 @@ def simulate(neuron, g_fac):
 
     #sum of excitatory conductance onto dendrite
     g_E_D_tot : siemens
+
+    spiketrain = int((t-lastspike) <= dt)/(dt/second) : 1
     '''
 
     NoI = NeuronGroup(1, nrn_eqs, threshold='phi(U, alpha, beta, r_max)*dt>rand()',
-                      refractory=0 * ms)
+                      refractory=0 * ms, method='euler')
     NoI.U = -70.0 * mV
     NoI.V = -70.0 * mV
 
     # equations for the synapses
     eqs_syn = '''
     #Input without weight
-    dg_s/dt = -g_s/tau_s : siemens
+    dg_s/dt = -g_s/tau_s : siemens (clock-driven)
 
     #Input with weight
-    dg_E_D/dt = -g_E_D/tau_s : siemens
+    dg_E_D/dt = -g_E_D/tau_s : siemens (clock-driven)
 
     g_E_D_tot_post = g_E_D : siemens (summed)
 
     #Derivatives w.r.t the synaptic weight
-    ddV_dw/dt = -(g_L + g_S + g_E_D)*dV_dw/C + g_S*dV_star_dw/C + (E_E - V)*g_s/C : volt
+    ddV_dw/dt = -(g_L + g_S + g_E_D)*dV_dw/C + g_S*dV_star_dw/C + (E_E - V)*g_s/C : volt (clock-driven)
 
-    ddV_star_dw/dt = -(g_L + g_D)*dV_star_dw/C + g_D*dV_dw/C : volt
+    ddV_star_dw/dt = -(g_L + g_D)*dV_star_dw/C + g_D*dV_dw/C : volt (clock-driven)
 
-    ddelta/dt = ((int((t-lastspike) < 0.11*ms)/(dt/second) - phi(V_star, alpha, beta, r_max)) * phi_prime(V_star, alpha, beta, r_max) / phi(V_star, alpha, beta, r_max) * dV_star_dw - delta)/tau_delta : 1
+    ddelta/dt = ((spiketrain - phi(V_star, alpha, beta, r_max)) * phi_prime(V_star, alpha, beta, r_max) / phi(V_star, alpha, beta, r_max) * dV_star_dw - delta)/tau_delta : 1 (clock-driven)
 
-    dw/dt = eta*delta : 1
+    dw/dt = eta*delta : 1 (clock-driven)
     '''
 
     pre = '''
@@ -164,7 +164,7 @@ def simulate(neuron, g_fac):
     g_E_D += w*msiemens
     '''
 
-    S = Synapses(Noise, NoI, eqs_syn, pre=pre)
+    S = Synapses(Noise, NoI, eqs_syn, on_pre=pre, method='euler')
 
     min_weights = np.zeros(N_input)
 
